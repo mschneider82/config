@@ -39,6 +39,7 @@ type Loader[T any] struct {
 	onChangeCallback    func(error) // Callback function for change events
 	disableAutoParse    bool        // Disables automatic parsing in New()
 	logger              Logger      // Logger for logging messages
+	useDefaultFilename  bool
 }
 
 // Option is a type for functional options.
@@ -57,11 +58,16 @@ func New[T any](opts ...Option[T]) *Loader[T] {
 		onChangeCallback:    nil,
 		disableAutoParse:    false,
 		logger:              slogLogger{}, // Default to slog
+		useDefaultFilename:  true,
 	}
 
 	// Apply functional options
 	for _, opt := range opts {
 		opt(loader)
+	}
+
+	if loader.useDefaultFilename {
+		WithConfigFile[T]("config.yml")(loader)
 	}
 
 	// Enable automatic environment variables
@@ -80,8 +86,11 @@ func New[T any](opts ...Option[T]) *Loader[T] {
 }
 
 // WithConfigFile is an option to load configuration from a file.
+// If WithConfigFile() and WithConfigReader() is not used, it will
+// default to "config.yml".
 func WithConfigFile[T any](configPath string) Option[T] {
 	return func(cl *Loader[T]) {
+		cl.useDefaultFilename = false
 		cl.viper.SetConfigFile(configPath)
 
 		if err := cl.viper.ReadInConfig(); err != nil {
@@ -93,6 +102,7 @@ func WithConfigFile[T any](configPath string) Option[T] {
 // WithConfigReader is an option to load configuration from an io.Reader.
 func WithConfigReader[T any](reader io.Reader, configType string) Option[T] {
 	return func(cl *Loader[T]) {
+		cl.useDefaultFilename = false
 		cl.viper.SetConfigType(configType)
 
 		if err := cl.viper.ReadConfig(reader); err != nil {

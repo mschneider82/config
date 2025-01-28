@@ -6,6 +6,7 @@ Config is a Go package for loading and managing configuration files using Viper.
 - Automatic environment variable binding (can be disabled).
 - Loading specific subsections of the configuration.
 - Dynamic reloading of configuration files.
+- Defaults to config.yml if nothing is specified. 
 
 ## Installation
 
