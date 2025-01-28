@@ -87,6 +87,66 @@ config := loader.Load()
 fmt.Println("Database Host:", config.Host)
 ```
 
+## Disabling Automatic Parsing
+
+```go
+oader := config.New[GlobalConfig](
+    config.WithConfigFile[GlobalConfig]("internal/config.yml"),
+    config.DisableAutoParse[GlobalConfig](), // Disable automatic parsing prevents panic on error
+)
+
+// Manually parse the configuration
+if err := loader.Parse(); err != nil {
+    panic("Failed to parse config: " + err.Error())
+}
+
+config := loader.Load()
+fmt.Println("Database Host:", config.DatabaseConfig.Host)
+```
+
+## Custom Logger
+
+```go
+// Custom logger implementation
+type customLogger struct{}
+
+func (c customLogger) Info(msg string, args ...any) {
+    fmt.Println("[INFO]", msg, args)
+}
+
+func (c customLogger) Error(msg string, args ...any) {
+    fmt.Println("[ERROR]", msg, args)
+}
+
+loader := config.New[GlobalConfig](
+    config.WithConfigFile[GlobalConfig]("internal/config.yml"),
+    config.WithLogger[GlobalConfig](customLogger{}), // Use custom logger
+)
+
+config := loader.Load()
+fmt.Println("Database Host:", config.DatabaseConfig.Host)
+```
+
+## Change Event Callback
+
+```go
+loader := config.New[GlobalConfig](
+    config.WithConfigFile[GlobalConfig]("internal/config.yml"),
+    config.WithOnChangeCallback[GlobalConfig](func(err error) {
+        if err != nil {
+            fmt.Println("Config reload failed:", err)
+        } else {
+            fmt.Println("Config reloaded successfully")
+        }
+    }),
+)
+
+loader.StartDynamicReload()
+
+config := loader.Load()
+fmt.Println("Database Host:", config.DatabaseConfig.Host)
+```
+
 # Examples
 See the examples for more usage patterns.
 

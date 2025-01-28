@@ -13,12 +13,32 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Logger is a simple interface for logging.
+type Logger interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}
+
+// slogLogger is a wrapper around slog to implement the Logger interface.
+type slogLogger struct{}
+
+func (s slogLogger) Info(msg string, args ...any) {
+	slog.Info(msg, args...)
+}
+
+func (s slogLogger) Error(msg string, args ...any) {
+	slog.Error(msg, args...)
+}
+
 // Loader is a generic structure that loads and parses configuration.
 type Loader[T any] struct {
 	config              atomic.Pointer[T] // Stores the current configuration
 	viper               *viper.Viper      // Viper instance for configuration management
 	disableAutomaticEnv bool
 	subSection          string
+	onChangeCallback    func(error) // Callback function for change events
+	disableAutoParse    bool        // Disables automatic parsing in New()
+	logger              Logger      // Logger for logging messages
 }
 
 // Option is a type for functional options.
@@ -34,6 +54,9 @@ func New[T any](opts ...Option[T]) *Loader[T] {
 		viper:               viperInstance,
 		disableAutomaticEnv: false,
 		subSection:          "",
+		onChangeCallback:    nil,
+		disableAutoParse:    false,
+		logger:              slogLogger{}, // Default to slog
 	}
 
 	// Apply functional options
@@ -46,9 +69,11 @@ func New[T any](opts ...Option[T]) *Loader[T] {
 		loader.viper.AutomaticEnv()
 	}
 
-	// Parses the configuration initially
-	if err := loader.Parse(); err != nil {
-		panic("Failed to load config: " + err.Error())
+	// Parse the configuration initially unless disabled
+	if !loader.disableAutoParse {
+		if err := loader.Parse(); err != nil {
+			panic("Failed to load config: " + err.Error())
+		}
 	}
 
 	return loader
@@ -60,7 +85,7 @@ func WithConfigFile[T any](configPath string) Option[T] {
 		cl.viper.SetConfigFile(configPath)
 
 		if err := cl.viper.ReadInConfig(); err != nil {
-			slog.Error("Failed to read config from file", "error", err)
+			cl.logger.Error("Failed to read config from file", "error", err)
 		}
 	}
 }
@@ -71,7 +96,7 @@ func WithConfigReader[T any](reader io.Reader, configType string) Option[T] {
 		cl.viper.SetConfigType(configType)
 
 		if err := cl.viper.ReadConfig(reader); err != nil {
-			slog.Error("Failed to read config from reader", "error", err)
+			cl.logger.Error("Failed to read config from reader", "error", err)
 		}
 	}
 }
@@ -94,6 +119,28 @@ func DisableAutomaticEnv[T any]() Option[T] {
 func WithSubSection[T any](section string) Option[T] {
 	return func(cl *Loader[T]) {
 		cl.subSection = section
+	}
+}
+
+// WithOnChangeCallback is an option to set a callback function that is called when a change event occurs.
+func WithOnChangeCallback[T any](callback func(error)) Option[T] {
+	return func(cl *Loader[T]) {
+		cl.onChangeCallback = callback
+	}
+}
+
+// DisableAutoParse is an option to disable automatic parsing in New(), this prevents panic when no config was found.
+// The Parse() function needs to be called after New() and before Load().
+func DisableAutoParse[T any]() Option[T] {
+	return func(cl *Loader[T]) {
+		cl.disableAutoParse = true
+	}
+}
+
+// WithLogger is an option to set a custom logger.
+func WithLogger[T any](logger Logger) Option[T] {
+	return func(cl *Loader[T]) {
+		cl.logger = logger
 	}
 }
 
@@ -136,10 +183,15 @@ func (c *Loader[T]) Load() T {
 func (c *Loader[T]) StartDynamicReload() {
 	// Register a callback for configuration changes
 	c.viper.OnConfigChange(func(event fsnotify.Event) {
-		if err := c.Parse(); err != nil { // Section is passed here
-			slog.Error("Failed to reload config", "error", err)
+		err := c.Parse() // Section is passed here
+		if err != nil {
+			c.logger.Error("Failed to reload config", "error", err)
 		} else {
-			slog.Info("Config reloaded successfully")
+			c.logger.Info("Config reloaded successfully")
+		}
+
+		if c.onChangeCallback != nil {
+			c.onChangeCallback(err) // Call the callback function with the error (if any)
 		}
 	})
 
