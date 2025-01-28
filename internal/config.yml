@@ -1,0 +1,4 @@
+HTTPListener: 0.0.0.0:8888
+databaseConfig:
+  host: localhost
+  port: 5432
