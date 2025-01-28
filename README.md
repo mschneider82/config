@@ -16,12 +16,12 @@ go get schneider.vip/config
 # Usage
 ## Loading from a File
 ```go
-loader := config.New[DatabaseConfig](
-    config.WithConfigFile[DatabaseConfig]("config.yaml"),
+loader := config.New[GlobalConfig](
+    config.WithConfigFile[GlobalConfig]("internal/config.yml"),
 )
 
 config := loader.Load()
-fmt.Println("Database Host:", config.Host)
+fmt.Println("Database Host:", config.DatabaseConfig.Host)
 ```
 
 ## Loading from a Reader
@@ -37,6 +37,18 @@ config := loader.Load()
 fmt.Println("Database Host:", config.Host)
 ```
 
+## Automatic Environment Variables
+```go
+os.Setenv("DATABASECONFIG_HOST", "example.com")
+loader := config.New[GlobalConfig](
+    config.WithConfigFile[GlobalConfig]("internal/config.yml"),
+)
+
+config := loader.Load()
+fmt.Println("Database Host:", config.DatabaseConfig.Host)
+// Database Host: example.com
+```
+
 ## Disabling Automatic Environment Variables
 ```go
 os.Setenv("DATABASECONFIG_HOST", "example.com")
@@ -47,6 +59,7 @@ loader := config.New[GlobalConfig](
 
 config := loader.Load()
 fmt.Println("Database Host:", config.DatabaseConfig.Host)
+// The Host is still localhost from config.yml 
 ```
 
 ## Loading a Subsection
