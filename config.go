@@ -184,13 +184,14 @@ func (c *Loader[T]) Parse() error {
 	return nil
 }
 
-// Load returns the current configuration.
+// Load returns the latest parsed configuration.
 func (c *Loader[T]) Load() T {
 	return *c.config.Load()
 }
 
-// StartDynamicReload starts a file watcher and parses the config on a change.
-func (c *Loader[T]) StartDynamicReload() {
+// StartWatcher starts a file watcher and parses the config on a change.
+// Optional returns an dynamic conf Loader, but the Loader[T] instance also can be used.
+func (c *Loader[T]) StartWatcher() Dynamic[T] {
 	// Register a callback for configuration changes
 	c.viper.OnConfigChange(func(event fsnotify.Event) {
 		err := c.Parse() // Section is passed here
@@ -209,4 +210,19 @@ func (c *Loader[T]) StartDynamicReload() {
 		// Enable watching for file changes
 		c.viper.WatchConfig()
 	}()
+
+	return c
+}
+
+type Dynamic[T any] interface {
+	Load() T
+}
+
+// NewDynamic creates a new DynamicConf loader with functional options.
+// Its Starts an background go routing by calling StartWatcher().
+func NewDynamic[T any](opts ...Option[T]) (Dynamic[T], T) {
+	dynloader := New(opts...)
+	dynloader.StartWatcher()
+
+	return dynloader, dynloader.Load()
 }
