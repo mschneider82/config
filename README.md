@@ -78,13 +78,11 @@ fmt.Println("Database Host:", config.Host)
 ## Dynamic Reloading
 
 ```go
-loader := config.New[DatabaseConfig](
+// config is current config
+dynLoader, config := config.NewDynamic[DatabaseConfig](
     config.WithConfigFile[DatabaseConfig]("config.yaml"),
 )
-
-loader.StartDynamicReload()
-
-config := loader.Load()
+config = dynLoader.Load() // Update with latest parsed config (after file changes)
 fmt.Println("Database Host:", config.Host)
 ```
 
@@ -142,7 +140,7 @@ loader := config.New[GlobalConfig](
     }),
 )
 
-loader.StartDynamicReload()
+loader.StartWatcher()
 
 config := loader.Load()
 fmt.Println("Database Host:", config.DatabaseConfig.Host)

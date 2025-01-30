@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
@@ -30,8 +31,15 @@ func (s slogLogger) Error(msg string, args ...any) {
 	slog.Error(msg, args...)
 }
 
-// Loader is a generic structure that loads and parses configuration.
-type Loader[T any] struct {
+// Loader is an interface for loading and parsing configuration.
+type Loader[T any] interface {
+	Parse() error
+	Load() T
+	StartWatcher() Dynamic[T]
+}
+
+// loader is a generic structure that loads and parses configuration.
+type loader[T any] struct {
 	config              atomic.Pointer[T] // Stores the current configuration
 	viper               *viper.Viper      // Viper instance for configuration management
 	disableAutomaticEnv bool
@@ -40,17 +48,21 @@ type Loader[T any] struct {
 	disableAutoParse    bool        // Disables automatic parsing in New()
 	logger              Logger      // Logger for logging messages
 	useDefaultFilename  bool
+	once                sync.Once // Ensure StartWatcher is called only once
 }
 
-// Option is a type for functional options.
-type Option[T any] func(*Loader[T])
+// Ensure loader implements Loader
+var _ Loader[any] = (*loader[any])(nil)
 
-// New creates a new ConfigLoader with functional options.
-func New[T any](opts ...Option[T]) *Loader[T] {
+// Option is a type for functional options.
+type Option[T any] func(*loader[T])
+
+// New creates a new Loader with functional options.
+func New[T any](opts ...Option[T]) Loader[T] {
 	// Create a new Viper instance with "_" as the key delimiter
 	viperInstance := viper.NewWithOptions(viper.KeyDelimiter("_"))
 
-	loader := &Loader[T]{
+	l := &loader[T]{
 		config:              atomic.Pointer[T]{},
 		viper:               viperInstance,
 		disableAutomaticEnv: false,
@@ -59,37 +71,38 @@ func New[T any](opts ...Option[T]) *Loader[T] {
 		disableAutoParse:    false,
 		logger:              slogLogger{}, // Default to slog
 		useDefaultFilename:  true,
+		once:                sync.Once{},
 	}
 
 	// Apply functional options
 	for _, opt := range opts {
-		opt(loader)
+		opt(l)
 	}
 
-	if loader.useDefaultFilename {
-		WithConfigFile[T]("config.yml")(loader)
+	if l.useDefaultFilename {
+		WithConfigFile[T]("config.yml")(l)
 	}
 
 	// Enable automatic environment variables
-	if !loader.disableAutomaticEnv {
-		loader.viper.AutomaticEnv()
+	if !l.disableAutomaticEnv {
+		l.viper.AutomaticEnv()
 	}
 
 	// Parse the configuration initially unless disabled
-	if !loader.disableAutoParse {
-		if err := loader.Parse(); err != nil {
+	if !l.disableAutoParse {
+		if err := l.Parse(); err != nil {
 			panic("Failed to load config: " + err.Error())
 		}
 	}
 
-	return loader
+	return l
 }
 
 // WithConfigFile is an option to load configuration from a file.
 // If WithConfigFile() and WithConfigReader() is not used, it will
 // default to "config.yml".
 func WithConfigFile[T any](configPath string) Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.useDefaultFilename = false
 		cl.viper.SetConfigFile(configPath)
 
@@ -101,7 +114,7 @@ func WithConfigFile[T any](configPath string) Option[T] {
 
 // WithConfigReader is an option to load configuration from an io.Reader.
 func WithConfigReader[T any](reader io.Reader, configType string) Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.useDefaultFilename = false
 		cl.viper.SetConfigType(configType)
 
@@ -113,28 +126,28 @@ func WithConfigReader[T any](reader io.Reader, configType string) Option[T] {
 
 // WithViperInstance is an option to provide a custom Viper instance.
 func WithViperInstance[T any](v *viper.Viper) Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.viper = v
 	}
 }
 
 // DisableAutomaticEnv is an option to disable automatic environment variable binding.
 func DisableAutomaticEnv[T any]() Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.disableAutomaticEnv = true
 	}
 }
 
 // WithSubSection is an option to load only a SubSection.
 func WithSubSection[T any](section string) Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.subSection = section
 	}
 }
 
 // WithOnChangeCallback is an option to set a callback function that is called when a change event occurs.
 func WithOnChangeCallback[T any](callback func(error)) Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.onChangeCallback = callback
 	}
 }
@@ -142,14 +155,14 @@ func WithOnChangeCallback[T any](callback func(error)) Option[T] {
 // DisableAutoParse is an option to disable automatic parsing in New(), this prevents panic when no config was found.
 // The Parse() function needs to be called after New() and before Load().
 func DisableAutoParse[T any]() Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.disableAutoParse = true
 	}
 }
 
 // WithLogger is an option to set a custom logger.
 func WithLogger[T any](logger Logger) Option[T] {
-	return func(cl *Loader[T]) {
+	return func(cl *loader[T]) {
 		cl.logger = logger
 	}
 }
@@ -158,7 +171,7 @@ var errSectionNotFound = errors.New("section not found in config")
 
 // Parse parses the configuration it into the generic struct.
 // If subsection set, only the specified subsection is parsed.
-func (c *Loader[T]) Parse() error {
+func (c *loader[T]) Parse() error {
 	var config T
 
 	// Extract the subsection if specified
@@ -185,31 +198,33 @@ func (c *Loader[T]) Parse() error {
 }
 
 // Load returns the latest parsed configuration.
-func (c *Loader[T]) Load() T {
+func (c *loader[T]) Load() T {
 	return *c.config.Load()
 }
 
 // StartWatcher starts a file watcher and parses the config on a change.
-// Optional returns an dynamic conf Loader, but the Loader[T] instance also can be used.
-func (c *Loader[T]) StartWatcher() Dynamic[T] {
-	// Register a callback for configuration changes
-	c.viper.OnConfigChange(func(event fsnotify.Event) {
-		err := c.Parse() // Section is passed here
-		if err != nil {
-			c.logger.Error("Failed to reload config", "error", err)
-		} else {
-			c.logger.Info("Config reloaded successfully")
-		}
+// Optional returns an dynamic conf Loader, but the loader[T] instance also can be used.
+func (c *loader[T]) StartWatcher() Dynamic[T] {
+	c.once.Do(func() {
+		// Register a callback for configuration changes
+		c.viper.OnConfigChange(func(event fsnotify.Event) {
+			err := c.Parse() // Section is passed here
+			if err != nil {
+				c.logger.Error("Failed to reload config", "error", err)
+			} else {
+				c.logger.Info("Config reloaded successfully")
+			}
 
-		if c.onChangeCallback != nil {
-			c.onChangeCallback(err) // Call the callback function with the error (if any)
-		}
+			if c.onChangeCallback != nil {
+				c.onChangeCallback(err) // Call the callback function with the error (if any)
+			}
+		})
+
+		go func() {
+			// Enable watching for file changes
+			c.viper.WatchConfig()
+		}()
 	})
-
-	go func() {
-		// Enable watching for file changes
-		c.viper.WatchConfig()
-	}()
 
 	return c
 }

@@ -76,13 +76,13 @@ func ExampleWithSubSection() {
 	// Output: Database Host: localhost
 }
 
-// ExampleStartDynamicReload demonstrates how to enable dynamic reloading of the configuration.
-func ExampleStartDynamicReload() {
+// ExampleStartWatcher demonstrates how to enable dynamic reloading of the configuration.
+func ExampleStartWatcher() {
 	loader := config.New[GlobalConfig](
 		config.WithConfigFile[GlobalConfig]("internal/config.yml"),
 	)
 
-	loader.StartDynamicReload()
+	loader.StartWatcher()
 
 	config := loader.Load()
 	fmt.Println("HTTP Listener:", config.HTTPListener)
