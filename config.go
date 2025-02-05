@@ -49,6 +49,7 @@ type loader[T any] struct {
 	logger              Logger      // Logger for logging messages
 	useDefaultFilename  bool
 	once                sync.Once // Ensure StartWatcher is called only once
+	exampleConfig       string    // shown if Parse fails, to give user a sample copy&paste example config
 }
 
 // Ensure loader implements Loader
@@ -152,6 +153,14 @@ func WithOnChangeCallback[T any](callback func(error)) Option[T] {
 	}
 }
 
+// WithExampleText is an option set an example config text which is shown if
+// section was not found or some parsing error.
+func WithExampleText[T any](example string) Option[T] {
+	return func(cl *loader[T]) {
+		cl.exampleConfig = example
+	}
+}
+
 // DisableAutoParse is an option to disable automatic parsing in New(), this prevents panic when no config was found.
 // The Parse() function needs to be called after New() and before Load().
 func DisableAutoParse[T any]() Option[T] {
@@ -174,20 +183,25 @@ var errSectionNotFound = errors.New("section not found in config")
 func (c *loader[T]) Parse() error {
 	var config T
 
+	var exampleText string
+	if len(c.exampleConfig) > 0 {
+		exampleText = fmt.Sprintf("\nExample Config:\n%s\n", c.exampleConfig)
+	}
+
 	// Extract the subsection if specified
 	if c.subSection != "" {
 		sub := c.viper.Sub(c.subSection)
 		if sub == nil {
-			return fmt.Errorf("%w: %s", errSectionNotFound, c.subSection)
+			return fmt.Errorf("%w: \"%s\"%s", errSectionNotFound, c.subSection, exampleText)
 		}
 
 		if err := sub.Unmarshal(&config); err != nil {
-			return fmt.Errorf("failed to unmarshal section %s: %w", c.subSection, err)
+			return fmt.Errorf("failed to unmarshal section %s: %w%s", c.subSection, err, exampleText)
 		}
 	} else {
 		// Parse the entire configuration
 		if err := c.viper.Unmarshal(&config); err != nil {
-			return fmt.Errorf("failed to unmarshal config: %w", err)
+			return fmt.Errorf("failed to unmarshal config: %w%s", err, exampleText)
 		}
 	}
 
@@ -200,6 +214,12 @@ func (c *loader[T]) Parse() error {
 // Load returns the latest parsed configuration.
 func (c *loader[T]) Load() T {
 	return *c.config.Load()
+}
+
+// Sets a new SetOnChangeFunc
+func (c *loader[T]) SetOnChangeFunc(fn func(error)) {
+	c.onChangeCallback = fn
+	return
 }
 
 // StartWatcher starts a file watcher and parses the config on a change.
@@ -231,13 +251,13 @@ func (c *loader[T]) StartWatcher() Dynamic[T] {
 
 type Dynamic[T any] interface {
 	Load() T
+	SetOnChangeFunc(func(error))
 }
 
 // NewDynamic creates a new DynamicConf loader with functional options.
 // Its Starts an background go routing by calling StartWatcher().
 func NewDynamic[T any](opts ...Option[T]) (Dynamic[T], T) {
-	dynloader := New(opts...)
-	dynloader.StartWatcher()
+	dyn := New(opts...).StartWatcher()
 
-	return dynloader, dynloader.Load()
+	return dyn, dyn.Load()
 }
