@@ -50,6 +50,8 @@ type loader[T any] struct {
 	useDefaultFilename  bool
 	once                sync.Once // Ensure StartWatcher is called only once
 	exampleConfig       string    // shown if Parse fails, to give user a sample copy&paste example config
+	defaultConfig       T         // default config
+	defaultConfigSet    bool
 }
 
 // Ensure loader implements Loader
@@ -92,7 +94,11 @@ func New[T any](opts ...Option[T]) Loader[T] {
 	// Parse the configuration initially unless disabled
 	if !l.disableAutoParse {
 		if err := l.Parse(); err != nil {
-			panic("Failed to load config: " + err.Error())
+			if !l.defaultConfigSet {
+				panic("Failed to load config: " + err.Error())
+			}
+
+			l.config.Store(&l.defaultConfig)
 		}
 	}
 
@@ -158,6 +164,15 @@ func WithOnChangeCallback[T any](callback func(error)) Option[T] {
 func WithExampleText[T any](example string) Option[T] {
 	return func(cl *loader[T]) {
 		cl.exampleConfig = example
+	}
+}
+
+// WithDefault is an option set an default config to prevent Parse to panic.
+// The default is only loaded if no config was found.
+func WithDefault[T any](config T) Option[T] {
+	return func(cl *loader[T]) {
+		cl.defaultConfig = config
+		cl.defaultConfigSet = true
 	}
 }
 
