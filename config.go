@@ -108,10 +108,10 @@ func New[T any](opts ...Option[T]) Loader[T] {
 // WithConfigFile is an option to load configuration from a file.
 // If WithConfigFile() and WithConfigReader() is not used, it will
 // default to "config.yml".
-func WithConfigFile[T any](configPath string) Option[T] {
+func WithConfigFile[T any](configName string) Option[T] {
 	return func(cl *loader[T]) {
 		cl.useDefaultFilename = false
-		cl.viper.SetConfigFile(configPath)
+		cl.viper.SetConfigFile(configName)
 
 		if err := cl.viper.ReadInConfig(); err != nil {
 			cl.logger.Error("Failed to read config from file", "error", err)
@@ -127,6 +127,19 @@ func WithConfigReader[T any](reader io.Reader, configType string) Option[T] {
 
 		if err := cl.viper.ReadConfig(reader); err != nil {
 			cl.logger.Error("Failed to read config from reader", "error", err)
+		}
+	}
+}
+
+// WithConfigPath adds config search Paths to viper before reading
+func WithConfigPath[T any](configPaths []string) Option[T] {
+	return func(cl *loader[T]) {
+		for _, configPath := range configPaths {
+			cl.viper.AddConfigPath(configPath)
+		}
+
+		if err := cl.viper.ReadInConfig(); err != nil {
+			cl.logger.Error("Failed to read config from file", "error", err)
 		}
 	}
 }
