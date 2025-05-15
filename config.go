@@ -3,6 +3,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +45,7 @@ type loader[T any] struct {
 	config              atomic.Pointer[T] // Stores the current configuration
 	viper               *viper.Viper      // Viper instance for configuration management
 	disableAutomaticEnv bool
+	withOnlyEnv         bool
 	subSection          string
 	onChangeCallback    func(error) // Callback function for change events
 	disableAutoParse    bool        // Disables automatic parsing in New()
@@ -103,6 +106,24 @@ func New[T any](opts ...Option[T]) Loader[T] {
 	}
 
 	return l
+}
+
+// WithOnlyEnv is an option to load configuration just a env.
+func WithOnlyEnv[T any]() Option[T] {
+	return func(cl *loader[T]) {
+		cl.withOnlyEnv = true
+		cl.viper.SetConfigFile("")
+		cl.useDefaultFilename = false
+
+		var cfg T
+
+		cfgBytes, _ := json.Marshal(cfg)
+		cl.viper.SetConfigType("json")
+
+		if err := cl.viper.ReadConfig(bytes.NewReader(cfgBytes)); err != nil {
+			cl.logger.Error("Failed to read config from reader", "error", err)
+		}
+	}
 }
 
 // WithConfigFile is an option to load configuration from a file.
